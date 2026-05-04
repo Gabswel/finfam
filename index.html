@@ -472,12 +472,15 @@ textarea { min-height: 72px; resize: vertical; }
       <div class="form-group"><label>Icon</label><input type="text" id="goal-icon" placeholder="✈️" maxlength="2"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Target (₸)</label><input type="number" inputmode="numeric" id="goal-target" placeholder="0"></div>
-      <div class="form-group"><label>Already Saved (₸)</label><input type="number" inputmode="numeric" id="goal-saved" placeholder="0"></div>
+      <div class="form-group"><label>Target Amount</label><input type="number" inputmode="numeric" id="goal-target" placeholder="0"></div>
+      <div class="form-group"><label>Currency</label><select id="goal-currency"><option value="KZT">₸ KZT</option><option value="USD">$ USD</option></select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Already Saved</label><input type="number" inputmode="numeric" id="goal-saved" placeholder="0"></div>
+      <div class="form-group"><label>Monthly Contribution</label><input type="number" inputmode="numeric" id="goal-monthly" placeholder="0"></div>
     </div>
     <div class="form-row">
       <div class="form-group"><label>Target Date</label><input type="date" id="goal-date"></div>
-      <div class="form-group"><label>Monthly (₸)</label><input type="number" inputmode="numeric" id="goal-monthly" placeholder="0"></div>
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('goal-modal')">Cancel</button>
@@ -527,6 +530,10 @@ let sessionUser  = sessionStorage.getItem('ffp_user')  || null;
 let state = { period: { month: new Date().getMonth(), year: new Date().getFullYear() }, income: {i1:0,i2:0,i3:0}, budgetCats: [], transactions: [], goals: [], assets: [] };
 let currentUser = null, selectedUser = null, txnFilter = 'all', currentSection = 'dashboard', saveTimer = null;
 
+function fmtGoal(n, currency) {
+  if(currency === 'USD') return '$' + Math.round(n).toLocaleString('en-US');
+  return '₸' + Math.round(n).toLocaleString('ru-KZ');
+}  
 function apiFetch(query) {
   const qs = new URLSearchParams(
     Object.fromEntries(Object.entries(query).map(([k,v]) => [k, typeof v === 'object' ? JSON.stringify(v) : v]))
@@ -711,7 +718,17 @@ function renderIncomeSummary(){
 }
 function openGoalModal(){openModal('goal-modal');}
 function saveGoal(){
-  state.goals.push({id:nextId(state.goals),name:document.getElementById('goal-name').value||'Goal',icon:document.getElementById('goal-icon').value||'🎯',target:parseFloat(document.getElementById('goal-target').value)||0,saved:parseFloat(document.getElementById('goal-saved').value)||0,date:document.getElementById('goal-date').value,monthly:parseFloat(document.getElementById('goal-monthly').value)||0,addedBy:currentUser});
+  state.goals.push({
+    id:nextId(state.goals),
+    name:document.getElementById('goal-name').value||'Goal',
+    icon:document.getElementById('goal-icon').value||'🎯',
+    target:parseFloat(document.getElementById('goal-target').value)||0,
+    saved:parseFloat(document.getElementById('goal-saved').value)||0,
+    date:document.getElementById('goal-date').value,
+    monthly:parseFloat(document.getElementById('goal-monthly').value)||0,
+    currency:document.getElementById('goal-currency').value||'KZT',
+    addedBy:currentUser
+  });
   closeModal('goal-modal');scheduleSave();renderAll();
 }
 function deleteGoal(id){if(!confirm('Delete?'))return;state.goals=state.goals.filter(g=>g.id!==id);scheduleSave();renderAll();}
@@ -735,7 +752,7 @@ function filterTxns(f,el){
 function renderDashboard(){
   const income=totalIncome(),expenses=totalExpenses(),savings=income-expenses,ob=state.budgetCats.filter(c=>catSpent(c.name)>c.budget).length;
   document.getElementById('metrics-grid').innerHTML=`<div class="metric"><div class="metric-label">Income</div><div class="metric-value">${fmt(income)}</div><div class="metric-sub">${MONTHS[state.period.month].slice(0,3)} ${state.period.year}</div></div><div class="metric red"><div class="metric-label">Expenses</div><div class="metric-value">${fmt(expenses)}</div><div class="metric-sub">${pct(expenses,income)}% of income</div></div><div class="metric ${savings>=0?'green':'red'}"><div class="metric-label">Saved</div><div class="metric-value">${fmt(savings)}</div><div class="metric-sub">${pct(savings,income)}% rate</div></div><div class="metric amber"><div class="metric-label">Over Budget</div><div class="metric-value">${ob}</div><div class="metric-sub">${ob===0?'All clear':'categories'}</div></div>`;
-  document.getElementById('budget-vs-actual').innerHTML=state.budgetCats.filter(c=>c.type!=='Savings').slice(0,5).map(c=>{const spent=catSpent(c.name),p=Math.min(pct(spent,c.budget),100),cls=p<70?'fill-green':p<95?'fill-amber':'fill-red';return `<div class="progress-wrap"><div class="progress-header"><span class="progress-name">${c.icon} ${c.name}</span><span class="progress-nums">${fmt(spent)} / ${fmt(c.budget)}</span></div><div class="progress-bar"><div class="progress-fill ${cls}" style="width:${p}%"></div></div></div>`;}).join('')||'<div style="font-size:12px;color:var(--text3)">Set up budget categories first.</div>';
+  document.getElementById('budget-vs-actual').innerHTML=[...state.budgetCats].filter(c=>c.type!=='Savings').sort((a,b)=>catSpent(b.name)-catSpent(a.name)).slice(0,5).map(c=>{const spent=catSpent(c.name),p=Math.min(pct(spent,c.budget),100),cls=p<70?'fill-green':p<95?'fill-amber':'fill-red';return `<div class="progress-wrap"><div class="progress-header"><span class="progress-name">${c.icon} ${c.name}</span><span class="progress-nums">${fmt(spent)} / ${fmt(c.budget)}</span></div><div class="progress-bar"><div class="progress-fill ${cls}" style="width:${p}%"></div></div></div>`;}).join('')||'<div style="font-size:12px;color:var(--text3)">Set up budget categories first.</div>';
   renderDonut();
   const months6=[];for(let i=5;i>=0;i--){let m=state.period.month-i,y=state.period.year;while(m<0){m+=12;y--;}const v=state.transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===m&&d.getFullYear()===y&&t.type==='expense';}).reduce((s,t)=>s+t.amount,0);months6.push({label:MONTHS[m].slice(0,3),val:v});}
   const maxV=Math.max(...months6.map(m=>m.val),1);
@@ -756,8 +773,20 @@ function renderDonut(){
 function renderBudget(){
   const totalB=state.budgetCats.reduce((s,c)=>s+c.budget,0),inc=(state.income.i1||0)+(state.income.i2||0)+(state.income.i3||0);
   document.getElementById('budget-allocated-pct').textContent=inc>0?`${pct(totalB,inc)}% allocated`:'';
-  document.getElementById('budget-cat-list').innerHTML=state.budgetCats.map(c=>{const spent=catSpent(c.name),rem=c.budget-spent,p=pct(spent,c.budget),cls=p>=100?'fill-red':p>=80?'fill-amber':'fill-green',scls=p>=100?'badge-red':p>=80?'badge-amber':'badge-green';return `<div style="padding:12px 0;border-bottom:1px solid var(--border)"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:18px">${c.icon}</span><span style="font-weight:600;flex:1;font-size:14px">${c.name}</span><span class="badge badge-gray" style="font-size:10px">${c.type}</span><span class="badge ${scls}">${p>=100?'Over':p>=80?'Near':'OK'}</span><button onclick="deleteBudgetCat(${c.id})" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:20px;padding:2px 6px">×</button></div><div class="progress-bar" style="height:6px;margin-bottom:5px"><div class="progress-fill ${cls}" style="width:${Math.min(p,100)}%"></div></div><div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2)"><span>Spent: <strong style="color:var(--danger)">${fmt(spent)}</strong></span><span>Budget: ${fmt(c.budget)}</span><span style="color:${rem>=0?'var(--accent)':'var(--danger)'}">${rem>=0?'Left':'Over'}: ${fmt(Math.abs(rem))}</span></div>${c.addedBy?`<div style="font-size:10px;color:${userColor(c.addedBy)};margin-top:3px;font-weight:500">${c.addedBy}</div>`:''}</div>`;}).join('')||'<div class="empty"><p>No categories yet</p></div>';
+  document.getElementById('budget-cat-list').innerHTML=state.budgetCats.map(c=>{const spent=catSpent(c.name),rem=c.budget-spent,p=pct(spent,c.budget),cls=p>=100?'fill-red':p>=80?'fill-amber':'fill-green',scls=p>=100?'badge-red':p>=80?'badge-amber':'badge-green';return `<div style="padding:12px 0;border-bottom:1px solid var(--border)"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:18px">${c.icon}</span><span style="font-weight:600;flex:1;font-size:14px">${c.name}</span><span class="badge badge-gray" style="font-size:10px">${c.type}</span><span class="badge ${scls}">${p>=100?'Over':p>=80?'Near':'OK'}</span><button onclick="editBudgetCat(${c.id})" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:13px;padding:2px 8px;border:1px solid var(--border);border-radius:6px">Edit</button>
+<button onclick="deleteBudgetCat(${c.id})" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:20px;padding:2px 6px">×</button></div><div class="progress-bar" style="height:6px;margin-bottom:5px"><div class="progress-fill ${cls}" style="width:${Math.min(p,100)}%"></div></div><div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2)"><span>Spent: <strong style="color:var(--danger)">${fmt(spent)}</strong></span><span>Budget: ${fmt(c.budget)}</span><span style="color:${rem>=0?'var(--accent)':'var(--danger)'}">${rem>=0?'Left':'Over'}: ${fmt(Math.abs(rem))}</span></div>${c.addedBy?`<div style="font-size:10px;color:${userColor(c.addedBy)};margin-top:3px;font-weight:500">${c.addedBy}</div>`:''}</div>`;}).join('')||'<div class="empty"><p>No categories yet</p></div>';
 }
+function editBudgetCat(id) {
+  const c = state.budgetCats.find(c => c.id === id);
+  if (!c) return;
+  const newAmount = prompt(`Edit budget for "${c.name}"\nCurrent: ${fmt(c.budget)}\n\nEnter new amount (₸):`);
+  if (newAmount === null) return; // cancelled
+  const parsed = parseFloat(newAmount);
+  if (isNaN(parsed) || parsed < 0) { alert('Please enter a valid amount.'); return; }
+  c.budget = parsed;
+  scheduleSave();
+  renderAll();
+}  
 function renderTransactions(){
   let txns=[...state.transactions].sort((a,b)=>new Date(b.date)-new Date(a.date));
   if(txnFilter==='income')txns=txns.filter(t=>t.type==='income');
@@ -770,7 +799,7 @@ function renderGoals(){
   document.getElementById('total-target').textContent=fmt(tT);
   document.getElementById('overall-progress').textContent=pct(tS,tT)+'%';
   const gc=['#2D6A4F','#C4783A','#1A5276','#8E44AD','#C0392B'];
-  document.getElementById('goals-list').innerHTML=state.goals.length?state.goals.map((g,i)=>{const p=pct(g.saved,g.target),cls=p<50?'fill-red':p<90?'fill-amber':'fill-green',mL=g.date?Math.max(0,Math.round((new Date(g.date)-new Date())/(1000*60*60*24*30))):'?';return `<div class="goal-card"><div class="goal-top"><div class="goal-icon-wrap" style="background:${gc[i%gc.length]}22">${g.icon}</div><div class="goal-info"><div class="goal-name">${g.name}</div><div class="goal-meta">${fmt(g.saved)} of ${fmt(g.target)} · ${mL}mo left · ${fmt(g.monthly)}/mo</div>${g.addedBy?`<div style="font-size:10px;color:${userColor(g.addedBy)};font-weight:500;margin-top:2px">${g.addedBy}</div>`:''}</div><div class="goal-actions"><button class="btn btn-sm btn-primary" onclick="addToGoal(${g.id})">+Add</button><button class="btn btn-sm" onclick="deleteGoal(${g.id})" style="color:var(--danger);border-color:var(--danger)">×</button></div></div><div class="progress-bar"><div class="progress-fill ${cls}" style="width:${p}%"></div></div><div style="font-size:11px;color:var(--text3);margin-top:5px">${p}% · ${fmt(g.target-g.saved)} remaining</div></div>`;}).join(''):'<div class="empty"><div class="empty-icon">🎯</div><p>No goals yet</p></div>';
+  document.getElementById('goals-list').innerHTML=state.goals.length?state.goals.map((g,i)=>{const p=pct(g.saved,g.target),cls=p<50?'fill-red':p<90?'fill-amber':'fill-green',mL=g.date?Math.max(0,Math.round((new Date(g.date)-new Date())/(1000*60*60*24*30))):'?';return `<div class="goal-card"><div class="goal-top"><div class="goal-icon-wrap" style="background:${gc[i%gc.length]}22">${g.icon}</div><div class="goal-info"><div class="goal-name">${g.name}</div><div class="goal-meta">${fmtGoal(g.saved,g.currency)} of ${fmtGoal(g.target,g.currency)} · ${mL}mo left · ${fmtGoal(g.monthly,g.currency)}/mo</div>${g.addedBy?`<div style="font-size:10px;color:${userColor(g.addedBy)};font-weight:500;margin-top:2px">${g.addedBy}</div>`:''}</div><div class="goal-actions"><button class="btn btn-sm btn-primary" onclick="addToGoal(${g.id})">+Add</button><button class="btn btn-sm" onclick="deleteGoal(${g.id})" style="color:var(--danger);border-color:var(--danger)">×</button></div></div><div class="progress-bar"><div class="progress-fill ${cls}" style="width:${p}%"></div></div><div style="font-size:11px;color:var(--text3);margin-top:5px">${p}% · ${fmt(g.target-g.saved)} remaining</div></div>`;}).join(''):'<div class="empty"><div class="empty-icon">🎯</div><p>No goals yet</p></div>';
 }
 function renderNetWorth(){
   const assets=state.assets.filter(a=>a.kind==='asset'),liabs=state.assets.filter(a=>a.kind==='liability');
