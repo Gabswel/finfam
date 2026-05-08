@@ -640,22 +640,18 @@ function pushSave() {
   };
 
   const dataStr = JSON.stringify(toSave);
-  const CHUNK_SIZE = 1500; // safe URL chunk size
+  const CHUNK_SIZE = 1500;
   const saveId = Date.now().toString();
   const chunks = [];
 
-  // Split data into chunks
   for (let i = 0; i < dataStr.length; i += CHUNK_SIZE) {
     chunks.push(dataStr.slice(i, i + CHUNK_SIZE));
   }
 
-  console.log('Saving in', chunks.length, 'chunks, total size:', dataStr.length);
   showSync('saving', 'Saving...');
 
-  // Send chunks sequentially
   function sendChunk(index) {
     if (index >= chunks.length) return;
-
     const url = APPS_SCRIPT_URL
       + '?action=save_chunk'
       + '&token=' + encodeURIComponent(sessionToken)
@@ -667,24 +663,18 @@ function pushSave() {
     fetch(url, { method: 'GET', mode: 'cors', cache: 'no-cache' })
       .then(r => r.json())
       .then(res => {
-        if (!res.success && res.error) {
+        if (res.error && !res.success) {
           showSync('error', '⚠ ' + res.error);
-          console.error('Chunk error:', res.error);
           return;
         }
         if (index === chunks.length - 1) {
-          // Last chunk — all done
           showSync('saved', '✓ Saved');
           updateLastUpdated(res.updatedBy, res.updatedAt);
         } else {
-          // Send next chunk
           sendChunk(index + 1);
         }
       })
-      .catch(err => {
-        showSync('error', '⚠ Save failed');
-        console.error('Chunk fetch error:', err);
-      });
+      .catch(() => showSync('error', '⚠ Save failed'));
   }
 
   sendChunk(0);
