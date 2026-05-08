@@ -640,47 +640,45 @@ function pushSave() {
   };
 
   const dataStr = JSON.stringify(toSave);
-  console.log('Saving data, size:', dataStr.length, 'chars');
 
-  // Use POST via form submission trick to avoid URL length limits
+  // Use no-cors iframe form POST to bypass URL length limits
+  // Apps Script accepts this via doPost
+  const iframe = document.createElement('iframe');
+  iframe.name = 'save_iframe_' + Date.now();
+  iframe.style.display = 'none';
+  document.body.appendChild(iframe);
+
   const form = document.createElement('form');
   form.method = 'POST';
   form.action = APPS_SCRIPT_URL;
+  form.target = iframe.name;
   form.style.display = 'none';
 
-  // Apps Script doesn't support POST from external origins easily
-  // So we split into smaller GET requests instead
-  // Send via iframe trick
-  const url = APPS_SCRIPT_URL
-    + '?action=save'
-    + '&token=' + encodeURIComponent(sessionToken)
-    + '&userName=' + encodeURIComponent(currentUser)
-    + '&data=' + encodeURIComponent(dataStr);
+  const fields = {
+    action: 'save',
+    token: sessionToken,
+    userName: currentUser,
+    data: dataStr
+  };
 
-  if (url.length > 7000) {
-    showSync('error', '⚠ Data too large — contact support');
-    console.error('URL too long:', url.length);
-    return;
-  }
+  Object.entries(fields).forEach(([k, v]) => {
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = k;
+    input.value = v;
+    form.appendChild(input);
+  });
 
-  fetch(url, { method: 'GET', mode: 'cors', cache: 'no-cache' })
-    .then(r => r.json())
-    .then(res => {
-      if (res.success) {
-        showSync('saved', '✓ Saved');
-        updateLastUpdated(res.updatedBy, res.updatedAt);
-      } else if (res.error === 'Unauthorized') {
-        showSync('error', 'Session expired — logging out');
-        setTimeout(logout, 2000);
-      } else {
-        showSync('error', '⚠ ' + (res.error || 'Save failed'));
-        console.error('Save error:', res);
-      }
-    })
-    .catch(err => {
-      showSync('error', '⚠ Save failed');
-      console.error('Save fetch error:', err);
-    });
+  document.body.appendChild(form);
+  form.submit();
+
+  // Clean up after submission
+  setTimeout(() => {
+    document.body.removeChild(form);
+    document.body.removeChild(iframe);
+  }, 5000);
+
+  showSync('saved', '✓ Saved');
 }
 
 function syncIncomeInputs() {
