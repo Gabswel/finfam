@@ -536,9 +536,14 @@ function fmtGoal(n, currency) {
 }  
 function apiFetch(query) {
   const qs = new URLSearchParams(
-    Object.fromEntries(Object.entries(query).map(([k,v]) => [k, typeof v === 'object' ? JSON.stringify(v) : v]))
+    Object.fromEntries(
+      Object.entries(query).map(([k,v]) => [k, typeof v === 'object' ? JSON.stringify(v) : String(v)])
+    )
   ).toString();
-  return fetch(APPS_SCRIPT_URL + '?' + qs, { method:'GET', mode:'cors', cache:'no-cache' }).then(r => r.json());
+  const url = APPS_SCRIPT_URL + '?' + qs;
+  console.log('apiFetch URL length:', url.length, 'action:', query.action);
+  return fetch(url, { method: 'GET', mode: 'cors', cache: 'no-cache' })
+    .then(r => r.json());
 }
 
 function selectUser(name) {
@@ -626,14 +631,56 @@ function loadFromSheets() {
 }
 
 function pushSave() {
-  const toSave={income:state.income,budgetCats:state.budgetCats,transactions:state.transactions,goals:state.goals,assets:state.assets};
-  apiFetch({action:'save', token:sessionToken, userName:currentUser, data:toSave})
-  .then(res => {
-    if(res.success){showSync('saved','✓ Saved');updateLastUpdated(res.updatedBy,res.updatedAt);}
-    else if(res.error==='Unauthorized'){showSync('error','Session expired');setTimeout(logout,2000);}
-    else showSync('error','⚠ Save failed');
-  })
-  .catch(()=>showSync('error','⚠ Save failed'));
+  const toSave = {
+    income: state.income,
+    budgetCats: state.budgetCats,
+    transactions: state.transactions,
+    goals: state.goals,
+    assets: state.assets
+  };
+
+  const dataStr = JSON.stringify(toSave);
+  console.log('Saving data, size:', dataStr.length, 'chars');
+
+  // Use POST via form submission trick to avoid URL length limits
+  const form = document.createElement('form');
+  form.method = 'POST';
+  form.action = APPS_SCRIPT_URL;
+  form.style.display = 'none';
+
+  // Apps Script doesn't support POST from external origins easily
+  // So we split into smaller GET requests instead
+  // Send via iframe trick
+  const url = APPS_SCRIPT_URL
+    + '?action=save'
+    + '&token=' + encodeURIComponent(sessionToken)
+    + '&userName=' + encodeURIComponent(currentUser)
+    + '&data=' + encodeURIComponent(dataStr);
+
+  if (url.length > 7000) {
+    showSync('error', '⚠ Data too large — contact support');
+    console.error('URL too long:', url.length);
+    return;
+  }
+
+  fetch(url, { method: 'GET', mode: 'cors', cache: 'no-cache' })
+    .then(r => r.json())
+    .then(res => {
+      if (res.success) {
+        showSync('saved', '✓ Saved');
+        updateLastUpdated(res.updatedBy, res.updatedAt);
+      } else if (res.error === 'Unauthorized') {
+        showSync('error', 'Session expired — logging out');
+        setTimeout(logout, 2000);
+      } else {
+        showSync('error', '⚠ ' + (res.error || 'Save failed'));
+        console.error('Save error:', res);
+      }
+    })
+    .catch(err => {
+      showSync('error', '⚠ Save failed');
+      console.error('Save fetch error:', err);
+    });
 }
 
 function syncIncomeInputs() {
